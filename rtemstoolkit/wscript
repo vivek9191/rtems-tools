@@ -96,6 +96,7 @@ def build(bld):
                   'rld-resolver.cpp',
                   'rld-rtems.cpp',
                   'rld-symbols.cpp',
+                  'rld-size-of.cpp',
                   'rld.cpp']
 
     #

@@ -47,6 +47,7 @@
 #include <rld-config.h>
 #include <rld-process.h>
 #include <rld-rtems.h>
+#include <rld-size-of.h>
 
 #ifndef HAVE_KILL
 #define kill(p,s) raise(s)
@@ -68,6 +69,11 @@ namespace rld
      * A container of arguments.
      */
     typedef std::vector < std::string > function_args;
+
+    /**
+     * A container of user-type members.
+     */
+    typedef std::vector < std::string > type_members;
 
     /**
      * The return value.
@@ -135,6 +141,36 @@ namespace rld
      * A container of signatures.
      */
     typedef std::map < std::string, signature > signatures;
+
+    /**
+     * A user type.
+     */
+    struct type
+    {
+      std::string     name; /**< The type's name. */
+      type_members    mems; /**< The type's list of members. */
+      size_t          size; /**< The type's size. */
+
+      /**
+       * The default constructor.
+       */
+      type ();
+
+      /**
+       * Construct the type loading it from the configuration.
+       */
+      type (const rld::config::record& record);
+
+      /**
+       * Return the type's declaration.
+       */
+      const std::string decl () const;
+    };
+
+    /**
+     * A container of types.
+     */
+    typedef std::vector < type > types;
 
     /**
      * A function is list of function signatures headers and defines that allow
@@ -221,6 +257,12 @@ namespace rld
        * Process any script based options.
        */
       void load_options (rld::config::config&        config,
+                         const rld::config::section& section);
+
+      /**
+       * Process any script based options.
+       */
+      void load_types (rld::config::config&        config,
                          const rld::config::section& section);
 
       /**
@@ -323,6 +365,32 @@ namespace rld
        */
       void dump (std::ostream& out) const;
 
+      /**
+       * Generate sizes of types defined in configuration file.
+       */
+      void generate_sizeof ();
+
+      /**
+       * Generate ordered type declarations.
+       */
+      std::string generate_ordered_type_decls ();
+
+      /**
+       * Generate headers.
+       */
+      std::string get_headers ();
+
+      /**
+       * Copy sizes to container types_.
+       */
+      void copy_sizeof_from (rld::size_of::types rtypes);
+
+      /**
+       * Append types_ to rtypes to find sizes.
+       */
+      void append_user_types_to (rld::size_of::types& rtypes);
+
+
     private:
 
       std::string  name;          /**< The name of the trace. */
@@ -333,6 +401,8 @@ namespace rld
       options      options_;      /**< The options. */
       functions    functions_;    /**< The functions that can be traced. */
       generator    generator_;    /**< The tracer's generator. */
+      types        types_;        /**< The usertypes. */
+
     };
 
     /**
@@ -416,6 +486,83 @@ namespace rld
       ii = std::unique (items.begin (), items.end ());
       items.resize (std::distance (items.begin (), ii));
     }
+
+    type::type ()
+    {
+    }
+
+    type::type (const rld::config::record& record)
+    {
+      /*
+       * There can only be one type in the configuration.
+       */
+      if (!record.single ())
+        throw rld::error ("duplicate", "type: " + record.name);
+
+      name = record.name;
+      rld::strings uti;
+      rld::config::parse_items (record, uti);
+
+      if (uti.size () == 0)
+        throw rld::error ("no members", "type: " + name);
+
+      mems.resize (uti.size ());
+      std::copy (uti.begin () , uti.end (), mems.begin ());
+    }
+
+    const std::string
+    type::decl () const
+    {
+      std::string s, s1;
+
+      if (name.find ("struct") == std::string::npos)
+      {
+        if (name.find ("array") != std::string::npos) //array
+        {
+          rld::strings arr, mem;
+          rld::split (arr, name, ' ');
+          rld::split (mem, *mems.begin (), ' ');
+          s1 = *mem.begin () + ' ' + *(arr.begin() + 1) + *(mem.begin () + 1) + ";\n";
+        }
+        else if (name.find ("enumeration") != std::string::npos) //enum
+        {
+          rld::strings en, mem;
+          rld::split (en, name, ' ');
+          rld::split (mem, *mems.begin (), ' ');
+          s1 = "enum " + *(en.begin() + 1) + "_s {\n";
+          for (rld::strings::const_iterator it = mems.begin ();
+               it != mems.end ();
+               ++it)
+          {
+            s1 += *it + ",\n";
+          }
+          s1 += *(en.begin() + 1) + "};\n";
+        }
+        else if (mems.size () > 1) //typedef struct
+        {
+          s1 = "typedef struct " + name + "_s {\n";
+          for (rld::strings::const_iterator si = mems.begin ();
+          si != mems.end ();
+          ++si)
+            s1 = s1 + *si + ";\n";
+          s1 = s1 + "} " + name + ";\n";
+        }
+        else //typedef
+          s1 = "typedef " + *(mems.begin()) + " " + name + ";\n";
+      }
+      else //struct
+      {
+        s1 = name + " {\n";
+        for (rld::strings::const_iterator si = mems.begin ();
+             si != mems.end ();
+             ++si)
+          s1 = s1 + *si + ";\n";
+        s1 = s1 + "};\n";
+      }
+      return s1;
+
+    }
+
 
     signature::signature ()
     {
@@ -759,6 +906,37 @@ namespace rld
       load_enables (config, section);
       load_triggers (config, section);
       load_traces (config, section);
+      load_types (config, section);
+    }
+
+    void
+    tracer::load_types (rld::config::config&        config,
+                          const rld::config::section& section)
+    {
+      rld::strings typ_list;
+      section.get_record_items ("types", typ_list);
+
+      for (rld::strings::const_iterator tli = typ_list.begin ();
+           tli != typ_list.end ();
+           ++tli)
+      {
+        rld::strings types;
+        rld::split(types, *tli, ',');
+
+        for (rld::strings::const_iterator tsi = types.begin ();
+             tsi != types.end ();
+             ++tsi)
+        {
+          const rld::config::section& typ_sec = config.get_section (*tsi);
+          for (rld::config::records::const_iterator ti = typ_sec.recs.begin ();
+               ti != typ_sec.recs.end ();
+               ++ti)
+          {
+            type typp (*ti);
+            types_.push_back(typp);
+          }
+        }
+      }
     }
 
     void
@@ -956,6 +1134,8 @@ namespace rld
         generate_triggers (c);
         c.write_line ("");
         c.write_lines (generator_.code);
+
+        generate_sizeof ();
 
         generate_traces (c);
       }
@@ -1500,6 +1680,214 @@ namespace rld
       generator_.dump (out);
     }
 
+    void
+    tracer::generate_sizeof ()
+    {
+
+      rld::size_of::types param_types;
+      std::string         utype_decls;
+      for (rld::strings::const_iterator ti = traces.begin ();
+           ti != traces.end ();
+           ++ti)
+      {
+        const std::string& trace = *ti;
+        bool               found = false;
+
+        for (functions::const_iterator fi = functions_.begin ();
+             !found && (fi != functions_.end ());
+             ++fi)
+        {
+          const function&            funcs = *fi;
+          signatures::const_iterator si = funcs.signatures_.find (trace);
+
+          if (si != funcs.signatures_.end ())
+          {
+            found = true;
+            const signature& sig = (*si).second;
+
+            if (sig.has_ret ())
+            {
+              rld::size_of::type ret_type (sig.ret);
+              param_types.push_back (ret_type);
+            }
+            if (sig.has_args ())
+            {
+              for (size_t a = 0; a < sig.args.size (); ++a)
+              {
+                rld::size_of::type arg_type (sig.args[a]);
+                param_types.push_back (arg_type);
+              }
+            }
+          }
+        }
+        if (!found)
+          throw rld::error ("not found", "trace function: " + trace);
+      }
+
+      std::sort (param_types.begin (), param_types.end ());
+      param_types.resize (std::distance (param_types.begin (),
+                          std::unique (param_types.begin (),
+                          param_types.end ())));
+
+      
+      append_user_types_to (param_types);
+      utype_decls = generate_ordered_type_decls ();
+      rld::size_of::get_sizeof (param_types, utype_decls, get_headers ());
+
+      copy_sizeof_from (param_types);
+    }
+
+    std::string
+    tracer::generate_ordered_type_decls ()
+    {
+      types           utypes (types_);
+      std::string     type_decls;
+      types::iterator ti = utypes.begin ();
+      do
+      {
+          type typ (*ti);
+
+          rld::strings margs, targs;
+          std::string  tname, mname;
+          bool         found = false;
+
+          for (types::iterator tj = utypes.begin ();
+               tj != utypes.end ();
+               ++tj)
+          {
+            type ttype (*tj);
+            for (type_members::iterator ni = typ.mems.begin ();
+                 ni != typ.mems.end ();
+                  ++ni)
+            {
+              rld::split (margs, *ni, ' ');
+              rld::split (targs, ttype.name, ' ');
+
+              if (*(targs.begin ()) == "struct")
+              {
+                tname = "struct " + *(targs.begin () + 1);
+              }
+              else if (*(targs.begin ()) == "array" || *(targs.begin ()) == "enumeration")
+              {
+                tname = *(targs.begin () + 1);
+              }
+              else
+              {
+                tname = *(targs.begin ());
+              }
+
+              if (*(margs.begin ()) == "struct")
+              {
+                mname = "struct " + *(margs.begin () + 1);
+              }
+              else if (*(margs.begin ()) == "array" || *(margs.begin ()) == "enumeration")
+              {
+                mname = *(margs.begin () + 1);
+              }
+              else
+              {
+                mname = *(margs.begin ());
+              }
+
+              if (mname == tname)
+              {
+                found = true;
+                break;
+              }
+            }
+            if (found == true)
+            {
+              break;
+            }
+          }
+
+          if (found == false)
+          {
+            type_decls += typ.decl ();
+            utypes.erase (ti);  
+          }
+
+          if ((*ti).name == (*utypes.end ()).name)
+          {
+            ti = utypes.begin ();
+          }
+          else ti++;
+      } while (!utypes.empty ());
+      return type_decls;
+    }
+
+    std::string
+    tracer::get_headers ()
+    {
+      std::stringstream sss;
+
+      sss << "#include <string.h>" << std::endl
+          << "#include <stdint.h>" << std::endl
+          << "#include <stdbool.h>" << std::endl;
+
+      return sss.str ();
+    }
+
+    void
+    tracer::append_user_types_to (rld::size_of::types& rtypes)
+    {
+      for (types::iterator ti = types_.begin ();
+           ti != types_.end ();
+           ++ti)
+      {
+        bool found = false;
+        std::string l = rld::find_replace ((*ti).name, "array ", "");
+        l = rld::find_replace (l, "enumeration ", "");
+        for (rld::size_of::types::iterator tj = rtypes.begin ();
+             tj != rtypes.end ();
+             ++tj)
+        {
+          if (l == (*tj).get_name ())
+          {
+            found = true;
+            break;
+          }
+        }
+        if (found == false)
+        {
+          rld::size_of::type rtyp (l);
+          rtyp.set_size ((*ti).size);
+          rtypes.push_back (rtyp);
+        }
+      }
+    }
+
+    void
+    tracer::copy_sizeof_from (rld::size_of::types rtypes)
+    {
+      for (rld::size_of::types::iterator ti = rtypes.begin ();
+           ti != rtypes.end ();
+           ++ti)
+      {
+        bool found = false;
+        for (types::iterator tj = types_.begin ();
+             tj != types_.end ();
+             ++tj)
+        {
+          std::string l = rld::find_replace ((*tj).name, "array ", "");
+          l = rld::find_replace (l, "enumeration ", "");
+          if (l == (*ti).get_name ())
+          { 
+            found = true;
+            (*tj).size = (*ti).get_size ();
+            break;
+          }
+        }
+        if (found == false)
+        {
+          type ttype;
+          ttype.name = (*ti).get_name ();
+          ttype.size = (*ti).get_size ();
+          types_.push_back (ttype);
+        }
+      }
+    }
+
     linker::linker ()
     {
     }
@@ -1618,7 +2006,6 @@ namespace rld
       {
         out << "  " << (*pi) << std::endl;
       }
-
       tracer_.dump (out);
     }
   }
@@ -1921,3 +2308,4 @@ main (int argc, char* argv[])
 
   return ec;
 }
+
