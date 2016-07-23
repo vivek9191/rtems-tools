@@ -48,6 +48,7 @@
 #include <rld-process.h>
 #include <rld-rtems.h>
 #include <rld-size-of.h>
+#include <trace.h>
 
 #ifndef HAVE_KILL
 #define kill(p,s) raise(s)
@@ -61,357 +62,12 @@ namespace rld
   namespace trace
   {
     /**
-     * Dump on error user option.
-     */
-    bool dump_on_error;
-
-    /**
-     * A container of arguments.
-     */
-    typedef std::vector < std::string > function_args;
-
-    /**
-     * A container of user-type members.
-     */
-    typedef std::vector < std::string > type_members;
-
-    /**
-     * The return value.
-     */
-    typedef std::string function_return;
-
-    /**
-     * An option is a name and value pair. We consider options as global.
-     */
-    struct option
-    {
-      std::string name;      /**< The name of this option. */
-      std::string value;     /**< The option's value.. */
-
-      /**
-       * Load the option.
-       */
-      option (const std::string& name, const std::string& value)
-        : name (name),
-          value (value) {
-      }
-    };
-
-    /**
-     * A container of options.
-     */
-    typedef std::vector < option > options;
-
-    /**
-     * A function's signature.
-     */
-    struct signature
-    {
-      std::string     name; /**< The function's name. */
-      function_args   args; /**< The function's list of arguments. */
-      function_return ret;  /**< The fuctions return value. */
-
-      /**
-       * The default constructor.
-       */
-      signature ();
-
-      /**
-       * Construct the signature loading it from the configuration.
-       */
-      signature (const rld::config::record& record);
-
-      /**
-       * Has the signature got a return value ?
-       */
-      bool has_ret () const;
-
-      /**
-       * Has the signature got any arguments ?
-       */
-      bool has_args () const;
-
-      /**
-       * Return the function's declaration.
-       */
-      const std::string decl (const std::string& prefix = "") const;
-    };
-
-    /**
-     * A container of signatures.
-     */
-    typedef std::map < std::string, signature > signatures;
-
-    /**
-     * A user type.
-     */
-    struct type
-    {
-      std::string     name; /**< The type's name. */
-      type_members    mems; /**< The type's list of members. */
-      size_t          size; /**< The type's size. */
-
-      /**
-       * The default constructor.
-       */
-      type ();
-
-      /**
-       * Construct the type loading it from the configuration.
-       */
-      type (const rld::config::record& record);
-
-      /**
-       * Return the type's declaration.
-       */
-      const std::string decl () const;
-    };
-
-    /**
-     * A container of types.
-     */
-    typedef std::vector < type > types;
-
-    /**
-     * A function is list of function signatures headers and defines that allow
-     * a function to be wrapped.
-     */
-    struct function
-    {
-      std::string  name;        /**< The name of this wrapper. */
-      rld::strings headers;     /**< Include statements. */
-      rld::strings defines;     /**< Define statements. */
-      signatures   signatures_; /**< Signatures in this function. */
-
-      /**
-       * Load the function.
-       */
-      function (rld::config::config& config,
-                const std::string&   name);
-
-      /**
-       * Dump the function.
-       */
-      void dump (std::ostream& out) const;
-    };
-
-    /**
-     * A container of functions.
-     */
-    typedef std::vector < function > functions;
-
-    /**
-     * A generator and that contains the functions used to trace arguments and
-     * return values. It also provides the implementation of those functions.
-     */
-    struct generator
-    {
-      std::string  name;            /**< The name of this wrapper. */
-      std::string  lock_model;      /**< The lock model if provided, default "alloc". */
-      std::string  lock_local;      /**< Code template to declare a local lock variable. */
-      std::string  lock_acquire;    /**< The lock acquire if provided. */
-      std::string  lock_release;    /**< The lock release if provided. */
-      std::string  buffer_local;    /**< Code template to declare a local buffer variable. */
-      rld::strings headers;         /**< Include statements. */
-      rld::strings defines;         /**< Define statements. */
-      std::string  entry_trace;     /**< Code template to trace the function entry. */
-      std::string  entry_alloc;     /**< Code template to perform a buffer allocation. */
-      std::string  arg_trace;       /**< Code template to trace an argument. */
-      std::string  exit_trace;      /**< Code template to trace the function exit. */
-      std::string  exit_alloc;      /**< Code template to perform a buffer allocation. */
-      std::string  ret_trace;       /**< Code template to trace the return value. */
-      rld::strings code;            /**< Code block inserted before the trace code. */
-
-      /**
-       * Default constructor.
-       */
-      generator ();
-
-      /**
-       * Load the generator.
-       */
-      generator (rld::config::config& config,
-                 const std::string&   name);
-
-      /**
-       * Dump the generator.
-       */
-      void dump (std::ostream& out) const;
-    };
-
-    /**
-     * Tracer.
-     */
-    class tracer
-    {
-    public:
-      tracer ();
-
-      /**
-       * Load the user's configuration.
-       */
-      void load (rld::config::config& config,
-                 const std::string&   section);
-
-      /**
-       * Process any script based options.
-       */
-      void load_options (rld::config::config&        config,
-                         const rld::config::section& section);
-
-      /**
-       * Process any script based options.
-       */
-      void load_types (rld::config::config&        config,
-                         const rld::config::section& section);
-
-      /**
-       * The defines for the trace.
-       */
-      void load_defines (rld::config::config&        config,
-                         const rld::config::section& section);
-
-      /**
-       * The functions for the trace.
-       */
-      void load_functions (rld::config::config&        config,
-                           const rld::config::section& section);
-
-      /**
-       * The enables for the tracer.
-       */
-      void load_enables (rld::config::config&        config,
-                         const rld::config::section& section);
-
-      /**
-       * The triggers for the tracer.
-       */
-      void load_triggers (rld::config::config&        config,
-                          const rld::config::section& section);
-
-      /**
-       * The traces for the tracer.
-       */
-      void load_traces (rld::config::config&        config,
-                        const rld::config::section& section);
-
-      /**
-       * Get option from the options section.
-       */
-      const std::string get_option (const std::string& name) const;
-
-      /**
-       * Generate the wrapper object file.
-       */
-      void generate (rld::process::tempfile& c);
-
-      /**
-       * Generate the trace names as a string table.
-       */
-      void generate_names (rld::process::tempfile& c);
-
-      /**
-       * Generate the trace signature tables.
-       */
-      void generate_signatures (rld::process::tempfile& c);
-
-      /**
-       * Generate the enabled trace bitmap.
-       */
-      void generate_enables (rld::process::tempfile& c);
-
-      /**
-       * Generate the triggered trace bitmap.
-       */
-      void generate_triggers (rld::process::tempfile& c);
-
-      /**
-       * Generate the functions.
-       */
-      void generate_functions (rld::process::tempfile& c);
-
-      /**
-       * Generate the trace functions.
-       */
-      void generate_traces (rld::process::tempfile& c);
-
-      /**
-       * Generate a bitmap.
-       */
-      void generate_bitmap (rld::process::tempfile& c,
-                            const rld::strings&     names,
-                            const std::string&      label,
-                            const bool              global_set);
-
-      /**
-       * Function macro replace.
-       */
-      void macro_func_replace (std::string&       text,
-                               const signature&   sig,
-                               const std::string& index);
-
-      /**
-       * Find the function given a name.
-       */
-      const function& find_function (const std::string& name) const;
-
-      /**
-       * Get the traces.
-       */
-      const rld::strings& get_traces () const;
-
-      /**
-       * Dump the wrapper.
-       */
-      void dump (std::ostream& out) const;
-
-      /**
-       * Generate sizes of types defined in configuration file.
-       */
-      void generate_sizeof ();
-
-      /**
-       * Generate ordered type declarations.
-       */
-      std::string generate_ordered_type_decls ();
-
-      /**
-       * Generate headers.
-       */
-      std::string get_headers ();
-
-      /**
-       * Copy sizes to container types_.
-       */
-      void copy_sizeof_from (rld::size_of::types rtypes);
-
-      /**
-       * Append types_ to rtypes to find sizes.
-       */
-      void append_user_types_to (rld::size_of::types& rtypes);
-
-
-    private:
-
-      std::string  name;          /**< The name of the trace. */
-      rld::strings defines;       /**< Define statements. */
-      rld::strings enables;       /**< The default enabled functions. */
-      rld::strings triggers;      /**< The default trigger functions. */
-      rld::strings traces;        /**< The functions to trace. */
-      options      options_;      /**< The options. */
-      functions    functions_;    /**< The functions that can be traced. */
-      generator    generator_;    /**< The tracer's generator. */
-      types        types_;        /**< The usertypes. */
-
-    };
-
-    /**
      * Trace Linker.
      */
     class linker
     {
     public:
-      linker ();
+      linker (rld::trace::tracer* t);
 
       /**
        * Load the user's configuration.
@@ -445,7 +101,7 @@ namespace rld
     private:
 
       rld::config::config    config;     /**< User configuration. */
-      tracer                 tracer_;    /**< The tracer */
+      tracer*                tracer_;    /**< The tracer */
       rld::process::tempfile c; /**< The C wrapper file */
       rld::process::tempfile o; /**< The wrapper object file */
     };
@@ -836,6 +492,8 @@ namespace rld
         exit_alloc = rld::dequote (section.get_record_item ("exit-alloc"));
       if (section.has_record ("ret-trace"))
         ret_trace = rld::dequote (section.get_record_item ("ret-trace"));
+      if (section.has_record ("ctf-header-trace"))
+        ctf_header_trace = rld::dequote (section.get_record_item ("ctf-header-trace"));
     }
 
     void
@@ -1887,8 +1545,9 @@ namespace rld
       }
     }
 
-    linker::linker ()
+    linker::linker (rld::trace::tracer* t)
     {
+      tracer_ = t;
     }
 
     void
@@ -1911,13 +1570,13 @@ namespace rld
       config.set_search_path (sp);
       config.clear ();
       config.load (name);
-      tracer_.load (config, trace);
+      tracer_->load (config, trace);
     }
 
     void
     linker::generate_wrapper (rld::process::tempfile& c)
     {
-      tracer_.generate (c);
+      tracer_->generate (c);
     }
 
     void
@@ -1972,7 +1631,7 @@ namespace rld
       rld::cc::make_ld_command (args);
 
       rld::process::args_append (args,
-                                 wrap + rld::join (tracer_.get_traces (), wrap));
+                                 wrap + rld::join (tracer_->get_traces (), wrap));
       args.push_back (o.name ());
       rld::process::args_append (args, ld_cmd);
 
@@ -2005,7 +1664,7 @@ namespace rld
       {
         out << "  " << (*pi) << std::endl;
       }
-      tracer_.dump (out);
+      tracer_->dump (out);
     }
   }
 }
@@ -2030,7 +1689,9 @@ static struct option rld_opts[] = {
   { "config",      required_argument,      NULL,           'C' },
   { "path",        required_argument,      NULL,           'P' },
   { "wrapper",     required_argument,      NULL,           'W' },
+  { "trace",       required_argument,      NULL,           'T' },
   { NULL,          0,                      NULL,            0 }
+
 };
 
 void
@@ -2052,7 +1713,9 @@ usage (int exit_code)
             << " -B bsp      : RTEMS arch/bsp (also --rtems-bsp)" << std::endl
             << " -W wrapper  : wrapper file name without ext (also --wrapper)" << std::endl
             << " -C ini      : user configuration INI file (also --config)" << std::endl
-            << " -P path     : user configuration file search path (also --path)" << std::endl;
+            << " -P path     : user configuration file search path (also --path)" << std::endl
+            << " -T format   : trace format (also --trace)" << std::endl;
+
   ::exit (exit_code);
 }
 
@@ -2099,7 +1762,7 @@ main (int argc, char* argv[])
 
   try
   {
-    rld::trace::linker linker;
+    rld::trace::tracer* t;
     std::string        cc;
     std::string        ld;
     std::string        ld_cmd;
@@ -2109,12 +1772,12 @@ main (int argc, char* argv[])
     std::string        wrapper;
     std::string        rtems_path;
     std::string        rtems_arch_bsp;
-
+    std::string        trace_format = "native";
     rld::set_cmdline (argc, argv);
 
     while (true)
     {
-      int opt = ::getopt_long (argc, argv, "hvwkVc:l:E:f:C:P:r:B:W:", rld_opts, NULL);
+      int opt = ::getopt_long (argc, argv, "hvwkVc:l:E:f:C:P:r:B:W:T:", rld_opts, NULL);
       if (opt < 0)
         break;
 
@@ -2179,6 +1842,10 @@ main (int argc, char* argv[])
           wrapper = optarg;
           break;
 
+        case 'T':
+          trace_format = optarg;
+          break;
+
         case '?':
           usage (3);
           break;
@@ -2188,6 +1855,16 @@ main (int argc, char* argv[])
           break;
       }
     }
+
+    if (trace_format == "ctf")
+    {
+      t = new rld::trace::ctf_tracer();
+    }
+    else
+    {
+      t = new rld::trace::tracer();
+    }
+    rld::trace::linker linker (t);
 
     /*
      * Set the program name.
