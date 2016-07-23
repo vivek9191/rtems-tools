@@ -529,14 +529,14 @@ namespace rld
           rld::strings en, mem;
           rld::split (en, name, ' ');
           rld::split (mem, *mems.begin (), ' ');
-          s1 = "enum " + *(en.begin() + 1) + "_s {\n";
+          s1 = "enum " + *(en.begin() + 1) + "_e { ";
           for (rld::strings::const_iterator it = mems.begin ();
                it != mems.end ();
                ++it)
           {
-            s1 += *it + ",\n";
+            s1 += *it + ", ";
           }
-          s1 += *(en.begin() + 1) + "};\n";
+          s1 += "} " + *(en.begin() + 1) + ";\n";
         }
         else if (mems.size () > 1) //typedef struct
         {
@@ -544,7 +544,7 @@ namespace rld
           for (rld::strings::const_iterator si = mems.begin ();
           si != mems.end ();
           ++si)
-            s1 = s1 + *si + ";\n";
+            s1 = s1 + "    " + *si + ";\n";
           s1 = s1 + "} " + name + ";\n";
         }
         else //typedef
@@ -556,7 +556,7 @@ namespace rld
         for (rld::strings::const_iterator si = mems.begin ();
              si != mems.end ();
              ++si)
-          s1 = s1 + *si + ";\n";
+          s1 = s1 + "    " + *si + ";\n";
         s1 = s1 + "};\n";
       }
       return s1;
@@ -1729,7 +1729,6 @@ namespace rld
                           std::unique (param_types.begin (),
                           param_types.end ())));
 
-      
       append_user_types_to (param_types);
       utype_decls = generate_ordered_type_decls ();
       rld::size_of::get_sizeof (param_types, utype_decls, get_headers ());
