@@ -690,8 +690,7 @@ namespace rld
 
               if (!generator_.entry_trace.empty ())
               {
-                l = rld::find_replace (generator_.entry_trace, ");", " + 4 * sizeof(uint32_t));"); // ?
-                l = " " + l;
+                l = " " + generator_.entry_trace;
                 macro_func_replace (l, sig, lss.str ());
                 c.write_line(l);
 
