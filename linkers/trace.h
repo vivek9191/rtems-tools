@@ -669,7 +669,7 @@ namespace rld
 
               if (!generator_.entry_alloc.empty ())
               {
-                l = rld::find_replace (generator_.entry_alloc, ");", " + 4 * sizeof(uint32_t));");
+                l = rld::find_replace (generator_.entry_alloc, ");", " + 2 * sizeof(uint32_t));");
                 l = " " + l;
                 macro_func_replace (l, sig, lss.str ());
                 c.write_line(l);
@@ -685,6 +685,7 @@ namespace rld
               {
                 l = " " + generator_.ctf_header_trace;
                 macro_func_replace (l, sig, lss.str ());
+                l = rld::find_replace (l, "@EVENT_ID@", "0");
                 c.write_line(l);
               }
 
@@ -741,7 +742,9 @@ namespace rld
 
               if (!generator_.exit_alloc.empty ())
               {
-                l = " " + generator_.exit_alloc;
+                
+                l = rld::find_replace (generator_.entry_alloc, ");", " + 2 * sizeof(uint32_t));");
+                l = " " + l;
                 macro_func_replace (l, sig, lss.str ());
                 c.write_line(l);
               }
@@ -750,6 +753,14 @@ namespace rld
                   (generator_.lock_model.empty () || (generator_.lock_model == "alloc")))
                 c.write_line(generator_.lock_release);
 
+              if (!generator_.ctf_header_trace.empty ())
+              {
+                l = " " + generator_.ctf_header_trace;
+                macro_func_replace (l, sig, lss.str ());
+                l = rld::find_replace (l, "@EVENT_ID@", "1");
+                c.write_line(l);
+              }
+              
               if (!generator_.exit_trace.empty ())
               {
                 l = " " + generator_.exit_trace;
