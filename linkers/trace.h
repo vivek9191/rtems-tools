@@ -421,17 +421,11 @@ namespace rld
         std::stringstream sss;
         if (!strcmp (fieldname, "entry-field"))
         {
-          sss << "        struct {" << std::endl
-              << "            uint32_t func_index;" << std::endl
-              << "            uint32_t tbg_executing_id;" << std::endl
-              << "            uint32_t tbg_executing_status;" << std::endl
-              << "            uint32_t rtld_tbg_executing_state;" << std::endl
-              << "            timestamp_t now;" << std::endl
-              << "        };";
-        }
-        else if (!strcmp (fieldname, "argument-field"))
-        {
-          sss << "        " << arg_type << " data;";
+          sss << "        uint32_t func_index;" << std::endl
+              << "        uint32_t tbg_executing_id;" << std::endl
+              << "        uint32_t tbg_executing_status;" << std::endl
+              << "        uint32_t rtld_tbg_executing_state;" << std::endl
+              << "        timestamp_t now;";
         }
         else if (!strcmp (fieldname, "return-field"))
         {
@@ -439,13 +433,15 @@ namespace rld
         }
         else if (!strcmp (fieldname, "exit-field"))
         {
-          sss << "        struct {" << std::endl
-              << "            uint32_t func_index;" << std::endl
-              << "            uint32_t tbg_executing_id;" << std::endl
-              << "            uint32_t tbg_executing_status;" << std::endl
-              << "            uint32_t rtld_tbg_executing_state;" << std::endl
-              << "            timestamp_t now;" << std::endl
-              << "        };";
+          sss << "        uint32_t func_index;" << std::endl
+              << "        uint32_t tbg_executing_id;" << std::endl
+              << "        uint32_t tbg_executing_status;" << std::endl
+              << "        uint32_t rtld_tbg_executing_state;" << std::endl
+              << "        timestamp_t now;";
+        }
+        else//argument
+        {
+          sss << "        " << arg_type << fieldname;
         }
         meta.write_line (sss.str ());
       }
@@ -455,32 +451,13 @@ namespace rld
       {
         std::stringstream sss;
         append_ctf_metadata_block_start ("trace", meta);
-        sss << "    major = 0;" << std::endl
-            << "    minor = 1;" << std::endl
-            << "    uuid = @UUID@;" << std::endl
-            << "    byte_order = @BO@;" << std::endl
+        sss << "    major = 1;" << std::endl
+            << "    minor = 8;" << std::endl
+            << "    byte_order = le;" << std::endl
             << "    packet.header := struct {" << std::endl
             << "        uint32_t magic;" << std::endl
-            << "        uint8_t  uuid[16];" << std::endl
             << "        uint32_t stream_id;" << std::endl
             << "    };";
-        meta.write_line (sss.str ());
-        append_ctf_metadata_block_end (meta);
-      }
-
-      void
-      append_ctf_metadata_clock_block (rld::process::tempfile& meta)
-      {
-        std::stringstream sss;
-        append_ctf_metadata_block_start ("clock", meta);
-        sss << "    name = monotonic;" << std::endl
-            << "    uuid = @CLOCKUUID@;" << std::endl
-            << "    description = \"monotonic clock\";" << std::endl
-            << "    freq = 1000000000;" << std::endl
-            << "    offset_s = @CLOCKOFF_S@;" << std::endl
-            << "    offset = @CLOCKOFF@;" << std::endl
-            << "    precision = @CLOCKPREC@;" << std::endl
-            << "    absolute = @CLOCKABS@;";
         meta.write_line (sss.str ());
         append_ctf_metadata_block_end (meta);
       }
@@ -490,14 +467,13 @@ namespace rld
       {
         std::stringstream sss;
         sss << "/* CTF 1.8 */"
-            << "typealias integer { size = 8; align = 8; signed = false; } := uint8_t;" << std::endl
-            << "typealias integer { size = 16; align = 8; signed = false; } := uint16_t;" << std::endl
-            << "typealias integer { size = 32; align = 8; signed = false; } := uint32_t;" << std::endl
-            << "typealias integer { size = 64; align = 8; signed = false; } := uint64_t;" << std::endl
-            << "typealias integer { size = 64; align = 8; signed = false; map = clock.monotonic.value; } := timestamp_t;" << std::endl;
+            << "typealias integer { size = 8; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := uint8_t;" << std::endl
+            << "typealias integer { size = 16; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := uint16_t;" << std::endl
+            << "typealias integer { size = 32; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := uint32_t;" << std::endl
+            << "typealias integer { size = 64; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := uint64_t;" << std::endl
+            << "typealias integer { size = 64; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := timestamp_t;" << std::endl;
         meta.write_line (sss.str ());
         append_ctf_metadata_trace_block (meta);
-        append_ctf_metadata_clock_block (meta);
       }
 
       void
@@ -508,8 +484,7 @@ namespace rld
         append_ctf_metadata_block_start ("stream", meta);
         sss << "    id = " << streamid << ";" << std::endl
             << "    event.header := struct {" << std::endl
-            << "        uint1_tid;" << std::endl
-            << "        timestamp_t timestamp;" << std::endl
+            << "        uint32_t id;" << std::endl
             << "    };";
         meta.write_line (sss.str ());
         append_ctf_metadata_block_end (meta);
@@ -520,40 +495,101 @@ namespace rld
         std::stringstream sss;
         std::string       l;
         rld::strings      nam;
-        for (types::iterator i = types_.begin ();
-             i != types_.end ();
-             ++i)
+        types             utypes (types_);
+        types::iterator   ti = utypes.begin ();
+        do
         {
-          if ((*i).mems.size () > 1)
-          {
-            if ((*i).name.find ("enumeration") != std::string::npos)//enum
+            type typ (*ti);
+
+            rld::strings margs, targs;
+            std::string  tname, mname;
+            bool         found = false;
+
+            for (types::iterator tj = utypes.begin ();
+                 tj != utypes.end ();
+                 ++tj)
             {
-              rld::split (nam, (*i).name, ' ');
-              std::string l = rld::find_replace ((*i).decl (), " " + *(nam.begin () + 1) + "_e", "");
-              l = rld::find_replace (l, "{", " : int32_t {");
-              sss << l << std::endl;
+              type ttype (*tj);
+              for (type_members::iterator ni = typ.mems.begin ();
+                   ni != typ.mems.end ();
+                    ++ni)
+              {
+                rld::split (margs, *ni, ' ');
+                rld::split (targs, ttype.name, ' ');
+
+                if (*(targs.begin ()) == "struct")
+                {
+                  tname = "struct " + *(targs.begin () + 1);
+                }
+                else if (*(targs.begin ()) == "array" || *(targs.begin ()) == "enumeration")
+                {
+                  tname = *(targs.begin () + 1);
+                }
+                else
+                {
+                  tname = *(targs.begin ());
+                }
+
+                if (*(margs.begin ()) == "struct")
+                {
+                  mname = "struct " + *(margs.begin () + 1);
+                }
+                else if (*(margs.begin ()) == "array" || *(margs.begin ()) == "enumeration")
+                {
+                  mname = *(margs.begin () + 1);
+                }
+                else
+                {
+                  mname = *(margs.begin ());
+                }
+
+                if (mname == tname)
+                {
+                  found = true;
+                  break;
+                }
+              }
+              if (found == true)
+              {
+                break;
+              }
             }
-            else//struct
+
+            if (found == false)
             {
-              rld::split (nam, (*i).name, ' ');
-              std::string l = rld::find_replace ((*i).decl (), "typedef struct ", "struct ");
-              l = rld::find_replace (l, *(nam.begin ()) + "_s", *(nam.begin ()));
-              l = rld::find_replace (l, "} " + *(nam.begin()) + ";\n", "};\n");
-              sss << l << std::endl;
+              if ((*ti).mems.size () > 1)
+              {
+                if ((*ti).name.find ("enumeration") != std::string::npos)//enum
+                {
+                  rld::split (nam, (*ti).name, ' ');
+                  std::string l = rld::find_replace ((*ti).decl (), *(nam.begin () + 1) + "_e", *(nam.begin () + 1) + "_e" + " : uint32_t");
+                  l = rld::find_replace (l, "enum", "typedef enum");
+                  sss << l << std::endl;
+                }
+                else//struct
+                  sss << (*ti).decl() << std::endl;
+              }
+              else if ((*ti).name.find ("array") != std::string::npos)//array
+              {
+                sss << "typedef " << (*ti).decl () << std::endl;
+              }
+              else//int
+              {
+                sss << "typealias integer { size = " << (*ti).size * 8
+                    << "; align = 8; signed = false; encoding = none; base = decimal; byte_order = le; } := "
+                    << (*ti).name << ";" << std::endl << std::endl;
+              }
+              utypes.erase (ti);
             }
-          }
-          else if ((*i).name.find ("array") != std::string::npos)//array
-          {
-            sss << "typedef " << (*i).decl () << std::endl;
-          }  
-          else//int
-          {
-            sss << "typealias integer { size = " << (*i).size << "; align = 8; signed = false; } := " << (*i).name << ";" << std::endl << std::endl;
-          }
-        }
+
+            if ((*ti).name == (*utypes.end ()).name)
+            {
+              ti = utypes.begin ();
+            }
+            else ti++;
+        } while (!utypes.empty ());
         meta.write_line (sss.str ());
       }
-
 
       void
       generate_traces (rld::process::tempfile& c)
@@ -669,7 +705,7 @@ namespace rld
 
               if (!generator_.entry_alloc.empty ())
               {
-                l = rld::find_replace (generator_.entry_alloc, ");", " + 2 * sizeof(uint32_t));");
+                l = rld::find_replace (generator_.entry_alloc, ");", " + 3 * sizeof(uint32_t));");
                 l = " " + l;
                 macro_func_replace (l, sig, lss.str ());
                 c.write_line(l);
@@ -709,9 +745,10 @@ namespace rld
                   l = rld::find_replace (l, "@ARG_TYPE@", '"' + sig.args[a] + '"');
                   l = rld::find_replace (l, "@ARG_SIZE@", "sizeof(" + sig.args[a] + ')');
                   l = rld::find_replace (l, "@ARG_LABEL@", "a" + n);
+                  std::string arg_id = rld::find_replace (" arg@ID@;", "@ID@", n);
                   c.write_line(l);
 
-                  append_ctf_metadata_event_field(meta, sig.args[a], "argument-field");
+                  append_ctf_metadata_event_field(meta, sig.args[a], arg_id.c_str());
                 }
               }
               append_ctf_metadata_event_block_end(meta);
@@ -743,7 +780,7 @@ namespace rld
               if (!generator_.exit_alloc.empty ())
               {
                 
-                l = rld::find_replace (generator_.entry_alloc, ");", " + 2 * sizeof(uint32_t));");
+                l = rld::find_replace (generator_.exit_alloc, ");", " + sizeof(uint32_t));");
                 l = " " + l;
                 macro_func_replace (l, sig, lss.str ());
                 c.write_line(l);
@@ -787,7 +824,7 @@ namespace rld
               if (sig.has_ret ())
               {
                 c.write_line(" return ret;");
-                append_ctf_metadata_event_field (meta, sig.ret, "argument-field");
+                append_ctf_metadata_event_field (meta, sig.ret, " argret;");
                 append_ctf_metadata_event_block_end(meta);
               }
               c.write_line("}");
